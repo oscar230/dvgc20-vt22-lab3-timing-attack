@@ -22,16 +22,19 @@ def request(user, delay, tag):
     response = requests.get(url)
     end_time = time.time()
     elapsed_time = end_time - start_time
+    elapsed_time_threshold = delay * tag_length
 
     result = {
         "status_code": response.status_code,
-        "ok": response.status_code == 200 or elapsed_time * 1000 >= delay,
+        "ok": response.status_code == 200,
         "text": response.text,
         "url": url,
         "elapsed_time": "{:.4f}".format(elapsed_time * 1000),
+        "elapsed_time_threshold": elapsed_time_threshold,
         "delay": delay,
         "hex": tag,
         "tag": tag_formatted_as_string,
+        "tag_ok": elapsed_time * 1000 >= elapsed_time_threshold,
         "is_tag_full_length": tag_length >= tag_max_length,
         "user": user
     }
@@ -52,6 +55,8 @@ def pwn(user, delay, max_workers, tag_prefix):
         tags = [append_hex(tag_prefix, item) for item in range(256)]
     # print([hex(item) for item in tags])
 
+    results = []
+
     with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
         uncompleted_futures = []
         for tag in tags:
@@ -59,21 +64,23 @@ def pwn(user, delay, max_workers, tag_prefix):
         
         for completed_futures in concurrent.futures.as_completed(uncompleted_futures):
             result = completed_futures.result()
+            results.append(result)
+
+    elapsed_mean = "{:.4f}".format(sum([float(item["elapsed_time"]) for item in results]) / len(results))
+    for result in results:
+        if result["tag_ok"]:
+            print(f"{result['tag']}\t{result['elapsed_time']}\t{elapsed_mean}\t\t\t{result['delay']}\t\t{result['elapsed_time_threshold']}\t\t{result['user']}\t{result['status_code']}")
             if result["ok"]:
-                # print(result)
-                if result["is_tag_full_length"]:
-                    print(f"Completed!\n{result['url']}")
-                else:
-                    next_tag_prefix = result["hex"]
-                    print(f"{result['tag']}\t{result['elapsed_time']}\t{result['delay']}\t\t{result['user']}")
-                    pwn(user, delay, max_workers, next_tag_prefix) # Run another
-                executor.shutdown(wait=False) # Shut down all other running futures in this instance of the thread pool executor
+                print(f"Completed! {result['url']}")
+            else:
+                next_tag_prefix = result["hex"]
+                pwn(user, delay, max_workers, next_tag_prefix) # Run another
 
 if __name__ == "__main__":
     user = "oscaande104"
-    delay = 200
+    delay = 100
     max_workers = 5
     starting_tag_prefix = None
 
-    print(f"tag\t\t\t\t\telapsed (ms)\tdelay (ms)\tuser")
+    print(f"tag\t\t\t\t\telapsed (ms)\telapsed mean (ms)\tdelay (ms)\tthreshold (ms)\tuser\t\thttp status")
     pwn(user, delay, max_workers, starting_tag_prefix)
