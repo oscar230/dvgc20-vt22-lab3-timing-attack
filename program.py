@@ -9,7 +9,7 @@ from typing import Union
 #   Globals
 #
 
-DEBUG: bool = True
+DEBUG: bool = False
 CSV: bool = True
 BASE_URL: str = "http://dart.cse.kau.se:12345/auth/"
 HTTP_MAX_RETRIES: int = 32
@@ -17,9 +17,20 @@ HTTP_RETRY_SLEEP_BASE: float = 0.5
 HTTP_RETRY_SLEEP_FACTOR: float = 0.5
 HTTP_LATENCY: float = 0.0
 HTTP_LATENCY_TIMOUT_FACTOR: float = 1.5
-HTTP_LATENCY_THRESHOLD_FACTOR: float = 0.8
+HTTP_LATENCY_THRESHOLD_FACTOR: float = 0.95
 TEST_SAMPLE_SIZE: int = 50
-CONCURRENT_WORKERS: int = 8
+CONCURRENT_WORKERS: int = 4
+
+# ANSI escape codes for text colors
+ANSI_RESET = "\033[0m"
+ANSI_BLACK = "\033[30m"
+ANSI_RED = "\033[31m"
+ANSI_GREEN = "\033[32m"
+ANSI_YELLOW = "\033[33m"
+ANSI_BLUE = "\033[34m"
+ANSI_MAGENTA = "\033[35m"
+ANSI_CYAN = "\033[36m"
+ANSI_WHITE = "\033[37m"
 
 #
 #   Classes
@@ -62,7 +73,7 @@ class Auth:
         self._run()
 
         if (DEBUG or CSV) and delay != 0:
-            print(f"{self._tag_length()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)},{self.tag_ok()}")
+            print(f"{ANSI_GREEN if self.tag_ok() and DEBUG else ''}{self._tag_length()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)},{self.tag_ok()}{ANSI_RESET}")
 
     # If auth is sucessfull return True
     def ok(self) -> bool:
