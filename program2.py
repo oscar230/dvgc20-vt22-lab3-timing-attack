@@ -141,7 +141,17 @@ def full_byte_range_with_prefix(prefix: list[int]) -> list[list[int]]:
         p = prefix.copy()
         p.append(x)
         list_of_list.append(p)
+
     return list_of_list
+
+def auth_remove_duplicates(auths: list[Auth]):
+    uniques: list[Auth] = []
+    for auth in auths:
+        # I think this operation can also be performed by comparing the square root of the tag
+        # as an int, but that is out of scope for this assignment.
+        if auth.tag_as_string() not in [item.tag_as_string() for item in uniques]:
+            uniques.append(auth)
+    return uniques
 
 def run(user: str, delay: float, tag_prefix: list[int]) -> str:
     # Test latency to get a base value
@@ -166,11 +176,18 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         with concurrent.futures.ThreadPoolExecutor(CONCURRENT_WORKERS) as executor:
             uncompleted_futures = []
             for auth in auths:
-                uncompleted_futures.append(executor.submit(auth.run))
+                if [x for x in auths if x.ok() or len([x for x in auths if x.ok()]) == 0]:
+                    uncompleted_futures.append(executor.submit(auth.run))
+
             concurrent.futures.wait(uncompleted_futures)
-            auths = [x for x in auths if x.ok()]
+        auths = [x for x in auths if x.ok()]
     
-    return "ee"
+        # We need to remove duplicates since for exameple 0x90 (144)
+        # and 0x9 (9) are the same according to the timing
+        # server (this is becouse we always pad tags with 0).
+        auths = auth_remove_duplicates(auths)
+    
+    return "adwadaw"
     if auths[0].status_code == 200:
         # Done
         print("Completed!")
