@@ -9,7 +9,7 @@ from typing import Union
 #   Globals
 #
 
-DEBUG: bool = False
+DEBUG: bool = True
 CSV: bool = True
 BASE_URL: str = "http://dart.cse.kau.se:12345/auth/"
 HTTP_MAX_RETRIES: int = 32
@@ -72,8 +72,17 @@ class Auth:
 
         self._run()
 
-        if (DEBUG or CSV) and delay != 0:
-            print(f"{ANSI_GREEN if self.tag_ok() and DEBUG else ''}{self._tag_length()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)},{self.tag_ok()}{ANSI_RESET}")
+        if (delay != 0):
+            if CSV and not DEBUG:
+                print(f"{self._tag_length()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)},{self.tag_ok()}")
+            elif DEBUG:
+                color = ANSI_GREEN if self.tag_ok() else ANSI_RESET
+                print(f'''{color}TAG={tag_as_string}
+    Tag iteration:       {self._tag_length()}
+    Mean elapsed time:   {"{:.2f}".format(self.elapsed_time_mean())}
+    Median elapsed time: {"{:.2f}".format(self.elapsed_time_median())}
+    Threshold:           {"{:.2f}".format(self._threshold())}
+    Delay (iteration):   {"{:.2f}".format(self.delay)} ({self._tag_length()}){ANSI_RESET}''')
 
     # If auth is sucessfull return True
     def ok(self) -> bool:
@@ -208,7 +217,7 @@ if __name__ == "__main__":
     
     HTTP_LATENCY = Auth(user, 0, [0x0]).elapsed_time_mean()
     if HTTP_LATENCY > 0:
-        if DEBUG or CSV:
+        if CSV and not DEBUG:
             print(f"tag iteration,tag,mean,median,threshold,delay,sample size,latency,tag ok")
 
         if delay > 0:
