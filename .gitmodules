@@ -1,0 +1,3 @@
+[submodule "timing-server"]
+	path = timing-server
+	url = https://github.com/rgdd/timing-server.git
