@@ -15,8 +15,8 @@ HTTP_RETRY_SLEEP_BASE: float = 0.8
 HTTP_RETRY_SLEEP_FACTOR: float = 0.75
 HTTP_LATENCY_TIMOUT_FACTOR: float = 1.5
 HTTP_LATENCY_THRESHOLD_FACTOR: float = 0.1
-TEST_SAMPLE_SIZE: int = 4
-CONCURRENT_WORKERS: int = 8
+TEST_SAMPLE_SIZE: int = 8
+CONCURRENT_WORKERS: int = 4
 
 # ANSI escape codes for text colors
 ANSI_RESET = "\033[0m"
@@ -71,12 +71,9 @@ class Auth:
 
         self._run()
 
-        # for a in self.test_results:
-        #     print(a.elapsed_time)
-
         if (DEBUG or self.tag_ok() or self.ok()) and (delay != 0):
             color = ANSI_GREEN if self.tag_ok() else ANSI_RESET
-            print(f'''{color}0x{tag_as_string}
+            print(f'''{color}\n0x{tag_as_string}
     Mean/Median time:    {"{:.2f}".format(self.elapsed_time_mean())} / {"{:.2f}".format(self.elapsed_time_median())}
     Thresholds (latency): {"{:.2f}".format(self._threshold_lower())} >< {"{:.2f}".format(self._threshold_upper())} ({"{:.2f}".format(self.latency)})
     Delay (iteration):   {"{:.2f}".format(self.delay)} ({self._tag_length()} out of {self.tag_max_length}){ANSI_RESET}''')
@@ -222,11 +219,13 @@ def run(user: str, delay: float, tag_prefix: list[int], latency: float) -> str:
         # Continue with next tag prefix
         return run(user, delay, auth_ok[0].tag, next_latency)
     elif len(auth_ok) > 1:
-        # Too many ok, run again
-        return run(user, delay, tag_prefix, next_latency)
+        # Too many ok, run these again
+        for auth in auth_ok:
+            return run(auth.user, auth.delay, auth.tag, next_latency)
     else:
         # Nothing ok, run again
         return run(user, delay, tag_prefix, next_latency)
+
 #
 #   Main
 #
