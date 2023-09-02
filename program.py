@@ -16,7 +16,7 @@ HTTP_RETRY_SLEEP_BASE_IN_SECONDS: float = 0.8
 HTTP_RETRY_SLEEP_FACTOR: float = 0.8
 HTTP_TIMOUT_FACTOR: float = 1.5
 THRESHOLD_LATENCY_FACTOR: float = 0.8
-CONCURRENT_WORKERS: int = 16
+CONCURRENT_WORKERS: int = 24
 
 # ANSI escape codes
 ANSI_RESET = "\033[0m"
@@ -200,7 +200,7 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         # Done, status code is 200
         return auths[0].url
     else:
-        print(f"{'{:.0f}'.format(float(auths[0].tag_length()) / float(auths[0].tag_max_length) * 100)} % complete, please wait...")
+        print(f"{'{:.0f}'.format(float(auths[0].tag_length()) / float(auths[0].tag_max_length / 2) * 100)} % complete, please wait...")
         # Continue with next tag prefix
         return run(user, delay, auths[0].tag)
 
