@@ -10,13 +10,15 @@ from typing import Union
 #
 
 DEBUG: bool = True
+CSV: bool = True
 HTTP_MAX_RETRIES: int = 32
 HTTP_RETRY_SLEEP_BASE: float = 0.5
 HTTP_RETRY_SLEEP_FACTOR: float = 0.5
 HTTP_LATENCY: float = 0.0
 HTTP_LATENCY_TIMOUT_FACTOR: float = 1.5
-TEST_SAMPLE_SIZE: int = 32
-CONCURRENT_WORKERS: int = 1
+HTTP_LATENCY_THRESHOLD_FACTOR: float = 0.8
+TEST_SAMPLE_SIZE: int = 50
+CONCURRENT_WORKERS: int = 8
 
 #
 #   Classes
@@ -54,12 +56,12 @@ class Auth:
         self.tag = tag
 
         tag_as_string = self.tag_as_string()
-        self.url = f"http://dart.cse.kau.se:12345/auth/{delay}/{user}/{tag_as_string}"
+        self.url = f"http://dart.cse.kau.se:12345/auth/{int(delay)}/{user}/{tag_as_string}"
 
         self._run()
 
-        if DEBUG and delay != 0:
-            print(f"tag:\t\t{tag_as_string}\nmean:\t\t{self.elapsed_time_mean()}\nmedian:\t\t{self.elapsed_time_median()}\nthreshold:\t{self._threshold()}\ndelay:\t\t{self.delay}")
+        if (DEBUG or CSV) and delay != 0:
+            print(f"{self._tag_length()},{self.tag_ok()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)}")
 
     # If auth is sucessfull return True
     def ok(self) -> bool:
@@ -69,7 +71,7 @@ class Auth:
         return self.elapsed_time_mean() > self._threshold()
     
     def _threshold(self) -> float:
-        return self.delay * self._tag_length()
+        return self.delay * self._tag_length() + (HTTP_LATENCY * HTTP_LATENCY_THRESHOLD_FACTOR)
     
     def _tag_length(self) -> int:
         return len([item for item in self.tag if isinstance(item, int)])
@@ -158,6 +160,8 @@ def full_byte_range_with_prefix(prefix: list[int]) -> list[list[int]]:
     return list_of_list
 
 def run(user: str, delay: float, tag_prefix: list[int]) -> str:
+    tag_prefix_ok: list[Auth] = []
+
     with concurrent.futures.ThreadPoolExecutor(CONCURRENT_WORKERS) as executor:
         uncompleted_futures = []
         for tag in full_byte_range_with_prefix(tag_prefix):
@@ -166,24 +170,34 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         for completed_futures in concurrent.futures.as_completed(uncompleted_futures):
             auth_attempt = completed_futures.result()
             if auth_attempt.ok():
+                print(auth_attempt)
+                # Completed got status 200 return url
                 return auth_attempt.url()
             elif auth_attempt.tag_ok():
-                print(f"Next tag prefix:\t{auth_attempt.tag_as_string()}")
-                return run(user, delay, auth_attempt.tag)
-    return "ERROR"
+                # Working tag prefix
+                tag_prefix_ok.append(auth_attempt)
 
+    if len(tag_prefix_ok) == 1:
+        # Continue with next tag prefix
+        return run(user, delay, auth_attempt.tag)
+    elif len(tag_prefix_ok) > 1:
+        # Too many ok, run again
+        return run(user, delay, tag)
+    else:
+        # Nothing ok, run again
+        return run(user, delay, tag)
 #
 #   Main
 #
 
 if __name__ == "__main__":
     user: str = "oscaande104"
-    delay: float = float(200)
+    delay: float = float(100)
     
     HTTP_LATENCY = Auth(user, 0, [0x0]).elapsed_time_mean()
     if HTTP_LATENCY > 0:
-        if DEBUG:
-            print(f"HTTP latency: {HTTP_LATENCY}")
+        if DEBUG or CSV:
+            print(f"tag iteration,tag,tag ok,mean,median,threshold,delay,sample size,latency")
 
         if delay > 0:
             print(f"Done!\nurl={run(user, delay, [])}")
