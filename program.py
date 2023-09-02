@@ -1,122 +1,193 @@
 import requests
+from requests.exceptions import ConnectionError, Timeout
 import time
 import concurrent.futures
 from statistics import median, fmean
+from typing import Union
 
-base_elapsed_time = 1000.0
-base_elapsed_time_factor = 1.5
+#
+#   Globals
+#
 
-def pad_string(input_str, target_length):
+DEBUG: bool = True
+HTTP_MAX_RETRIES: int = 32
+HTTP_RETRY_SLEEP_BASE: float = 0.5
+HTTP_RETRY_SLEEP_FACTOR: float = 0.5
+HTTP_LATENCY: float = 0.0
+HTTP_LATENCY_TIMOUT_FACTOR: float = 1.5
+TEST_SAMPLE_SIZE: int = 32
+CONCURRENT_WORKERS: int = 1
+
+#
+#   Classes
+#
+
+class TestResult:
+    url: str
+    status_code: int
+    text: str
+    elapsed_time: float
+
+    def __init__(self, url, status_code, text, elapsed_time):
+        self.url = url
+        self.status_code = status_code
+        self.text = text
+        self.elapsed_time = elapsed_time
+
+class Auth:
+    url: str
+    user: str
+    delay: float
+    tag: list[int]
+    tag_max_length: int
+    elapsed_time_threshold: float
+    sample_size: int
+    test_results: list[TestResult]
+
+    def __init__(self, user: str, delay: float, tag: list[int]):
+        self.test_results = []
+        self.tag_max_length = 32
+        self.sample_size = TEST_SAMPLE_SIZE
+
+        self.user = user
+        self.delay = delay
+        self.tag = tag
+
+        tag_as_string = self.tag_as_string()
+        self.url = f"http://dart.cse.kau.se:12345/auth/{delay}/{user}/{tag_as_string}"
+
+        self._run()
+
+        if DEBUG and delay != 0:
+            print(f"tag:\t\t{tag_as_string}\nmean:\t\t{self.elapsed_time_mean()}\nmedian:\t\t{self.elapsed_time_median()}\nthreshold:\t{self._threshold()}\ndelay:\t\t{self.delay}")
+
+    # If auth is sucessfull return True
+    def ok(self) -> bool:
+        return any(r.status_code == 200 for r in self.test_results)
+    
+    def tag_ok(self) -> bool:
+        return self.elapsed_time_mean() > self._threshold()
+    
+    def _threshold(self) -> float:
+        return self.delay * self._tag_length()
+    
+    def _tag_length(self) -> int:
+        return len([item for item in self.tag if isinstance(item, int)])
+    
+    def tag_as_string(self) -> str:
+        string = ""
+        # represent as string
+        for hex_value in self.tag:
+            if not isinstance(hex_value, int):
+                hex_value = 0
+            hex_value = hex(hex_value) # convert
+            hex_value = hex_value[2:] # remove the two first characters which are "0x"
+            hex_value = pad_string_with_zero(hex_value, 2)
+            string += hex_value
+        # pad string and return
+        return pad_string_with_zero(string, self.tag_max_length)
+
+    def elapsed_time_mean(self) -> float:
+        if self.test_results:
+            return fmean([item.elapsed_time for item in self.test_results])
+        else:
+            return 0.0
+        
+    def elapsed_time_median(self) -> float:
+        if self.test_results:
+            return median([item.elapsed_time for item in self.test_results])
+        else:
+            return 0.0
+
+    def _run(self) -> None:
+        for _ in range(self.sample_size):
+            result = self._request()
+            self.test_results.append(result)
+    
+    def _request(self) -> TestResult:
+        timeout: float = self._threshold() + (HTTP_LATENCY * HTTP_LATENCY_TIMOUT_FACTOR)
+        if timeout == 0.0:
+            timeout = 1337.0
+        retried: int = 0
+
+        while retried < HTTP_MAX_RETRIES:
+            retry_sleep_time: float = HTTP_RETRY_SLEEP_BASE + (HTTP_RETRY_SLEEP_FACTOR * retried)
+            try:
+                start_time = time.time()
+                response = requests.get(self.url, timeout=timeout)
+                end_time = time.time()
+                elapsed_time = (end_time - start_time) * 1000
+                return TestResult(self.url, response.status_code, response.text, elapsed_time)
+            except ConnectionError as e:
+                if DEBUG:
+                    print(f"Connection failed {e}")
+                retried += 1
+                if retried < HTTP_MAX_RETRIES:
+                    if DEBUG:
+                        print(f"Retrying in {retry_sleep_time} ms")
+                    time.sleep(retry_sleep_time)
+                else:
+                    print(f"Max retries of {HTTP_MAX_RETRIES} exceeded!")
+                    break
+            except Timeout as e:
+                print(f"Timeout of {timeout} ms exceeded.")
+                retries += 1
+                if retries < HTTP_MAX_RETRIES:
+                    if DEBUG:
+                        print(f"Retrying in {retry_sleep_time} ms")
+                    time.sleep(retry_sleep_time)
+                else:
+                    print(f"Max retries of {HTTP_MAX_RETRIES} exceeded!")
+                    break
+
+#
+#   Static functions
+#
+
+def pad_string_with_zero(input_str, target_length):
     while len(input_str) < target_length:
         input_str += '0'
     return input_str
 
-def hex_array_to_string(hex_array):
-    string = ""
-    for hex_value in hex_array:
-        if not isinstance(hex_value, int):
-            hex_value = 0
-        hex_value = hex(hex_value) # convert
-        hex_value = hex_value[2:] # remove the two first characters which are "0x"
-        hex_value = pad_string(hex_value, 2)
-        string += hex_value
-    return string
+def full_byte_range_with_prefix(prefix: list[int]) -> list[list[int]]:
+    list_of_list = []
+    for x in range(256):
+        p = prefix.copy()
+        p.append(x)
+        list_of_list.append(p)
+    return list_of_list
 
-def request(user, delay, hex_array):
-    tag_max_length = 32
-
-    # Prepare the tag and the url
-    tag_formatted_as_string = hex_array_to_string(hex_array) # represent as string
-    tag_length = len([item for item in hex_array if isinstance(item, int)])
-    tag_formatted_as_string = pad_string(tag_formatted_as_string, tag_max_length) # pad string
-    url = f"http://dart.cse.kau.se:12345/auth/{delay}/{user}/{tag_formatted_as_string}"
-
-    # Make request and time the response
-    start_time = time.time()
-    response = requests.get(url)
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    elapsed_time = elapsed_time * 1000
-    elapsed_time_threshold = delay * tag_length
-
-    result = {
-        "status_code": response.status_code,
-        "ok": response.status_code == 200,
-        "text": response.text,
-        "url": url,
-        "elapsed_time": "{:.2f}".format(elapsed_time),
-        "elapsed_time_threshold": elapsed_time_threshold,
-        "delay": delay,
-        "hex_array": hex_array,
-        "tag": tag_formatted_as_string,
-        "tag_ok": elapsed_time >= elapsed_time_threshold,
-        "is_tag_full_length": tag_length >= tag_max_length,
-        "user": user
-    }
-
-    if delay != 0:
-        if response.status_code == 400:
-            print(f"Malformed input! url={url}")
-        if elapsed_time > elapsed_time_threshold + (base_elapsed_time * base_elapsed_time_factor):
-            return request(user, delay, hex_array)
-        
-    return result
-
-def index_of_none(hex_array):    
-    try:
-        index_of_none = hex_array.index(None)
-        return index_of_none
-    except ValueError:
-        return None
-
-def pwn(user, delay, max_workers, hex_array):
-    index = index_of_none(hex_array)
-    next_hex_arrays = []
-    if isinstance(index, int):
-        for r in range(256):
-            next_hex_array = hex_array.copy()
-            next_hex_array[index] = r
-            next_hex_arrays.append(next_hex_array)
-
-    results = []
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
+def run(user: str, delay: float, tag_prefix: list[int]) -> str:
+    with concurrent.futures.ThreadPoolExecutor(CONCURRENT_WORKERS) as executor:
         uncompleted_futures = []
-        for next_hex_array in next_hex_arrays:
-            uncompleted_futures.append(executor.submit(request, user, delay, next_hex_array))
+        for tag in full_byte_range_with_prefix(tag_prefix):
+            uncompleted_futures.append(executor.submit(Auth, user, delay, tag))
         
         for completed_futures in concurrent.futures.as_completed(uncompleted_futures):
-            result = completed_futures.result()
-            results.append(result)
+            auth_attempt = completed_futures.result()
+            if auth_attempt.ok():
+                return auth_attempt.url()
+            elif auth_attempt.tag_ok():
+                print(f"Next tag prefix:\t{auth_attempt.tag_as_string()}")
+                return run(user, delay, auth_attempt.tag)
+    return "ERROR"
 
-    all_elapsed_as_float = [float(item["elapsed_time"]) for item in results]
-    if len(all_elapsed_as_float) > 0:
-        elapsed_mean = "{:.2f}".format(fmean(all_elapsed_as_float))
-        elapsed_median = "{:.2f}".format(median(all_elapsed_as_float))
-    else:
-        elapsed_mean = "00.00"
-        elapsed_median = "00.00"
-    for result in results:
-        if result["tag_ok"]:
-            tag_nice = " ".join(result['tag'][i:i+2] for i in range(0, len(result['tag']), 2)) # found online
-            print(f"{tag_nice}\t\t{result['elapsed_time']}\t\t{elapsed_mean}\t\t{elapsed_median}\t\t{result['elapsed_time_threshold']}")
-            if result["ok"]:
-                print(f"Completed! {result['url']}")
-            else:
-                next_tag_prefix = result["hex_array"]
-                pwn(user, delay, max_workers, next_tag_prefix) # Run another
+#
+#   Main
+#
 
 if __name__ == "__main__":
-    user = "oscaande104"
-    delay = 98
-    max_workers = 4
-    array_length = 16
-    hex_array = [None] * array_length
+    user: str = "oscaande104"
+    delay: float = float(200)
+    
+    HTTP_LATENCY = Auth(user, 0, [0x0]).elapsed_time_mean()
+    if HTTP_LATENCY > 0:
+        if DEBUG:
+            print(f"HTTP latency: {HTTP_LATENCY}")
 
-    base_elapsed_times = []
-    for _ in range(8):
-        base_elapsed_times.append(float(request(user, 0, [None])["elapsed_time"]))
-    base_elapsed_time = fmean(base_elapsed_times)
-
-    print(f"user\t{user}\ndelay\t{delay} ms\nsize\t{array_length} bytes\nworkers\t{max_workers}\nlatency\t{'{:.2f}'.format(base_elapsed_time)} ({'{:.2f}'.format(base_elapsed_time * base_elapsed_time_factor)})\n\ntag\t\t\t\t\t\t\telapsed\t\tmean\t\tmedian\t\tthreshold")
-    pwn(user, delay, max_workers, hex_array)
+        if delay > 0:
+            print(f"Done!\nurl={run(user, delay, [])}")
+        else:
+            print("Delay has to be larger than 0.")
+    else:
+        print("Failed to get base HTTP latency to server, maybe there is not network connection.")
