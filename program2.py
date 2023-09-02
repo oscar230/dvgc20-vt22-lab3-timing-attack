@@ -15,7 +15,7 @@ HTTP_RETRY_SLEEP_BASE_IN_SECONDS: float = 0.8
 HTTP_RETRY_SLEEP_FACTOR: float = 0.75
 HTTP_TIMOUT_FACTOR: float = 1.5
 THRESHOLD_LATENCY_FACTOR: float = 0.2
-CONCURRENT_WORKERS: int = 4
+CONCURRENT_WORKERS: int = 8
 
 # ANSI escape codes for text colors
 ANSI_RESET = "\033[0m"
@@ -187,7 +187,6 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         # server (this is becouse we always pad tags with 0).
         auths = auth_remove_duplicates(auths)
     
-    return "adwadaw"
     if auths[0].status_code == 200:
         # Done
         print("Completed!")
