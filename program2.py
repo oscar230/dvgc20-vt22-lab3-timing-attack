@@ -8,14 +8,14 @@ from statistics import median, fmean
 #   Globals
 #
 
-DEBUG: bool = True
+DEBUG: bool = False
 BASE_URL: str = "http://dart.cse.kau.se:12345/auth/"
 HTTP_MAX_RETRIES: int = 100
 HTTP_RETRY_SLEEP_BASE_IN_SECONDS: float = 0.8
 HTTP_RETRY_SLEEP_FACTOR: float = 0.75
 HTTP_TIMOUT_FACTOR: float = 1.5
-THRESHOLD_LATENCY_FACTOR: float = 0.2
-CONCURRENT_WORKERS: int = 8
+THRESHOLD_LATENCY_FACTOR: float = 0.75
+CONCURRENT_WORKERS: int = 16
 
 # ANSI escape codes for text colors
 ANSI_RESET = "\033[0m"
@@ -98,7 +98,7 @@ class Auth:
 
                 if self.ok() or DEBUG:
                     color = ANSI_GREEN if self.ok() else ANSI_RESET
-                    print(f'{color}0x{self.tag_as_string()} took {"{:.2f}".format(self.elapsed_time)} ({"{:.2f}".format(self.threshold)})')
+                    print(f'{color}0x{self.tag_as_string()} took {"{:.2f}".format(self.elapsed_time)} ({"{:.2f}".format(self.threshold)}){ANSI_RESET}')
 
                 return None
             except ConnectionError as e:
@@ -145,13 +145,14 @@ def full_byte_range_with_prefix(prefix: list[int]) -> list[list[int]]:
     return list_of_list
 
 def auth_remove_duplicates(auths: list[Auth]):
-    uniques: list[Auth] = []
+    unique_auths: list[Auth] = []
+    unique_tags: list[str] = []
     for auth in auths:
-        # I think this operation can also be performed by comparing the square root of the tag
-        # as an int, but that is out of scope for this assignment.
-        if auth.tag_as_string() not in [item.tag_as_string() for item in uniques]:
-            uniques.append(auth)
-    return uniques
+        tag_as_string: str = auth.tag_as_string()
+        if tag_as_string not in unique_tags:
+            unique_tags.append(tag_as_string)
+            unique_auths.append(auth)
+    return unique_auths
 
 def run(user: str, delay: float, tag_prefix: list[int]) -> str:
     # Test latency to get a base value
@@ -167,10 +168,7 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
     for tag in full_byte_range_with_prefix(tag_prefix):
         auths.append(Auth(user, delay, tag, latency))
 
-    # Keep going if either:
-    #   * there are no attempts (first iteration)
-    #   * there are no sucessfull auths
-    #   * there are more than one ok tag prefixes
+    # Stop only if there is exaclty one OK auth
     while len([x for x in auths if x.ok()]) != 1:
         print(f"{ANSI_YELLOW}Testing {len(auths)} tag prefixes{ANSI_RESET}")
         with concurrent.futures.ThreadPoolExecutor(CONCURRENT_WORKERS) as executor:
@@ -186,11 +184,17 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         # and 0x9 (9) are the same according to the timing
         # server (this is becouse we always pad tags with 0).
         auths = auth_remove_duplicates(auths)
+
+        # Rare error
+        # TODO fix
+        if len(auths) == 0:
+            print(f"{ANSI_RED}No auths!!!{ANSI_RESET}")
+            return run(user, delay, tag_prefix)
+            #exit(-1)
     
+    # When there are exactly one OK auth in the list
     if auths[0].status_code == 200:
-        # Done
-        print("Completed!")
-        print(auths)
+        # Done, status code is 200
         return auths[0].url
     else:
         # Continue with next tag prefix
@@ -203,4 +207,6 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
 if __name__ == "__main__":
     user: str = "oscaande104"
     delay: float = float(100)
-    print(f"Done!\nurl={run(user, delay, [])}")
+    print("Starting...")
+    url: str = run(user, delay, [])
+    print(f"Done!\nurl={url}")
