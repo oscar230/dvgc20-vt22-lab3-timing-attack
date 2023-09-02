@@ -2,7 +2,8 @@ import requests
 from requests.exceptions import ConnectionError, Timeout
 import time
 import concurrent.futures
-from statistics import median, fmean
+from statistics import fmean
+import sys
 
 #
 #   Globals
@@ -12,12 +13,12 @@ DEBUG: bool = False
 BASE_URL: str = "http://dart.cse.kau.se:12345/auth/"
 HTTP_MAX_RETRIES: int = 100
 HTTP_RETRY_SLEEP_BASE_IN_SECONDS: float = 0.8
-HTTP_RETRY_SLEEP_FACTOR: float = 0.75
+HTTP_RETRY_SLEEP_FACTOR: float = 0.8
 HTTP_TIMOUT_FACTOR: float = 1.5
-THRESHOLD_LATENCY_FACTOR: float = 0.75
+THRESHOLD_LATENCY_FACTOR: float = 0.8
 CONCURRENT_WORKERS: int = 16
 
-# ANSI escape codes for text colors
+# ANSI escape codes
 ANSI_RESET = "\033[0m"
 ANSI_BLACK = "\033[30m"
 ANSI_RED = "\033[31m"
@@ -53,7 +54,7 @@ class Auth:
         self.delay = delay
         self.tag = tag
 
-        threshold_base = self._tag_length() * delay + latency
+        threshold_base = self.tag_length() * delay + latency
         self.threshold = threshold_base - (latency * THRESHOLD_LATENCY_FACTOR)
 
         tag_as_string = self.tag_as_string()
@@ -63,7 +64,7 @@ class Auth:
     def ok(self) -> bool:
         return self.status_code == 200 or (self.elapsed_time >= self.threshold)
     
-    def _tag_length(self) -> int:
+    def tag_length(self) -> int:
         return len([item for item in self.tag if isinstance(item, int)])
     
     def tag_as_string(self) -> str:
@@ -96,9 +97,9 @@ class Auth:
                 self.elapsed_time = elapsed_time
                 self.status_code = response.status_code
 
-                if self.ok() or DEBUG:
+                if DEBUG and self.ok():
                     color = ANSI_GREEN if self.ok() else ANSI_RESET
-                    print(f'{color}0x{self.tag_as_string()} took {"{:.2f}".format(self.elapsed_time)} ({"{:.2f}".format(self.threshold)}){ANSI_RESET}')
+                    print(f'{color}0x{self.tag_as_string()}\t{"{:.2f}".format(self.elapsed_time)} ms\tlatency ~{"{:.2f}".format(self.latency)} ms\tthreshold {"{:.2f}".format(self.threshold)} ms{ANSI_RESET}')
 
                 return None
             except ConnectionError as e:
@@ -170,7 +171,8 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
 
     # Stop only if there is exaclty one OK auth
     while len([x for x in auths if x.ok()]) != 1:
-        print(f"{ANSI_YELLOW}Testing {len(auths)} tag prefixes{ANSI_RESET}")
+        if DEBUG:
+            print(f"{ANSI_YELLOW}Testing {len(auths)} tag prefixes{ANSI_RESET}")
         with concurrent.futures.ThreadPoolExecutor(CONCURRENT_WORKERS) as executor:
             uncompleted_futures = []
             for auth in auths:
@@ -188,7 +190,8 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         # Rare error
         # TODO fix
         if len(auths) == 0:
-            print(f"{ANSI_RED}No auths!!!{ANSI_RESET}")
+            if DEBUG:
+                print(f"{ANSI_RED}No auths! Adjust THRESHOLD_LATENCY_FACTOR={THRESHOLD_LATENCY_FACTOR} or choose a higher delay.{ANSI_RESET}")
             return run(user, delay, tag_prefix)
             #exit(-1)
     
@@ -197,6 +200,7 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
         # Done, status code is 200
         return auths[0].url
     else:
+        print(f"{'{:.0f}'.format(float(auths[0].tag_length()) / float(auths[0].tag_max_length) * 100)} % complete, please wait...")
         # Continue with next tag prefix
         return run(user, delay, auths[0].tag)
 
@@ -205,8 +209,11 @@ def run(user: str, delay: float, tag_prefix: list[int]) -> str:
 #
 
 if __name__ == "__main__":
-    user: str = "oscaande104"
-    delay: float = float(100)
-    print("Starting...")
-    url: str = run(user, delay, [])
-    print(f"Done!\nurl={url}")
+    if len(sys.argv) > 2:
+        user: str = str(sys.argv[1])
+        delay: float = float(sys.argv[2])
+        print(f"user:\t{user}\ndelay:\t{delay}\nStarting...")
+        url: str = run(user, float(delay), [])
+        print(f"Done!\nurl={url}")
+    else:
+        print(f"Usage:\tpython {sys.argv[0]} username delay_in_seconds")
