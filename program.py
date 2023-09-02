@@ -11,6 +11,7 @@ from typing import Union
 
 DEBUG: bool = True
 CSV: bool = True
+BASE_URL: str = "http://dart.cse.kau.se:12345/auth/"
 HTTP_MAX_RETRIES: int = 32
 HTTP_RETRY_SLEEP_BASE: float = 0.5
 HTTP_RETRY_SLEEP_FACTOR: float = 0.5
@@ -56,12 +57,12 @@ class Auth:
         self.tag = tag
 
         tag_as_string = self.tag_as_string()
-        self.url = f"http://dart.cse.kau.se:12345/auth/{int(delay)}/{user}/{tag_as_string}"
+        self.url = f"{BASE_URL}{int(delay)}/{user}/{tag_as_string}"
 
         self._run()
 
         if (DEBUG or CSV) and delay != 0:
-            print(f"{self._tag_length()},{self.tag_ok()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)}")
+            print(f"{self._tag_length()},{tag_as_string},{'{:.2f}'.format(self.elapsed_time_mean())},{'{:.2f}'.format(self.elapsed_time_median())},{'{:.2f}'.format(self._threshold())},{self.delay},{TEST_SAMPLE_SIZE},{'{:.2f}'.format(HTTP_LATENCY)},{self.tag_ok()}")
 
     # If auth is sucessfull return True
     def ok(self) -> bool:
@@ -197,7 +198,7 @@ if __name__ == "__main__":
     HTTP_LATENCY = Auth(user, 0, [0x0]).elapsed_time_mean()
     if HTTP_LATENCY > 0:
         if DEBUG or CSV:
-            print(f"tag iteration,tag,tag ok,mean,median,threshold,delay,sample size,latency")
+            print(f"tag iteration,tag,mean,median,threshold,delay,sample size,latency,tag ok")
 
         if delay > 0:
             print(f"Done!\nurl={run(user, delay, [])}")
